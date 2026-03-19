@@ -1,0 +1,145 @@
+name: Reusable Azure Deploy
+
+on:
+  workflow_call:
+    inputs:
+      target_service:
+        description: "Azure service type (webapp/function)"
+        required: true
+        type: string
+      function_runtime:
+        description: "Runtime language if target is function"
+        required: true
+        type: string
+      environment:
+        description: "Environment to execute the deployment against"
+        required: true
+        type: string
+      app_name:
+        description: "Target resource name in Azure"
+        required: true
+        type: string
+    secrets:
+      PUBLISH_PROFILE:
+        description: "Azure Publish Profile credentials"
+        required: true
+
+jobs:
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # -------------------------------------------------------------
+      # Node.js Web App
+      # -------------------------------------------------------------
+      - name: Setup Node.js (Web App)
+        if: ${{ inputs.target_service == 'webapp' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare Web App Artifact
+        if: ${{ inputs.target_service == 'webapp' }}
+        working-directory: ./src/webapp-node
+        run: |
+          npm install --omit=dev             # Clean install of production dependencies only
+          zip -rq ../../deployment-artifact.zip .  # Quietly zip the resulting package
+
+      # -------------------------------------------------------------
+      # Python Function App
+      # -------------------------------------------------------------
+      - name: Setup Python (Function App)
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare Python Function Artifact
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'python' }}
+        working-directory: ./src/function-python
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          # Python functions usually expect packages in .python_packages for linux consumption plans
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt
+          zip -rq ../../deployment-artifact.zip .
+
+      # -------------------------------------------------------------
+      # Node.js Function App
+      # -------------------------------------------------------------
+      - name: Setup Node.js (Function App)
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'node' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare Node.js Function Artifact
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'node' }}
+        working-directory: ./src/function-node
+        run: |
+          npm install --omit=dev
+          zip -rq ../../deployment-artifact.zip .
+
+      # -------------------------------------------------------------
+      # .NET Function App
+      # -------------------------------------------------------------
+      - name: Setup .NET (Function App)
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'dotnet' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Prepare .NET Function Artifact
+        if: ${{ inputs.target_service == 'function' && inputs.function_runtime == 'dotnet' }}
+        working-directory: ./src/function-dotnet
+        run: |
+          # Build and publish the release artifact locally
+          dotnet publish -c Release -o ./publish_output
+          cd publish_output
+          zip -rq ../../../deployment-artifact.zip .
+
+      # -------------------------------------------------------------
+      # Publish Build Artifact
+      # -------------------------------------------------------------
+      - name: Upload Deployment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ github.run_id }}
+          path: deployment-artifact.zip
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: build
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Download Deployment Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: package-${{ github.run_id }}
+          path: ./deploy-drop
+
+      - name: Deploy Azure Web App
+        if: ${{ inputs.target_service == 'webapp' }}
+        uses: azure/webapps-deploy@v3   # Latest major version for webapps-deploy
+        with:
+          app-name: ${{ inputs.app_name }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE }}
+          package: ./deploy-drop/deployment-artifact.zip
+
+      - name: Deploy Azure Function
+        if: ${{ inputs.target_service == 'function' }}
+        uses: azure/functions-action@v1 # Latest major version for functions-action
+        with:
+          app-name: ${{ inputs.app_name }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE }}
+          package: ./deploy-drop/deployment-artifact.zip

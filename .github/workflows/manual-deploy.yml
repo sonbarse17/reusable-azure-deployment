@@ -1,0 +1,62 @@
+name: Trigger Azure Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_service:
+        description: "Select the target Azure service"
+        required: true
+        type: choice
+        options:
+          - webapp
+          - function
+      function_runtime:
+        description: "Select runtime (leave as 'none' if deploying a Web App)"
+        required: true
+        type: choice
+        options:
+          - none
+          - python
+          - node
+          - dotnet
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - uat
+          - prod
+        default: "dev"
+      app_name:
+        description: "Azure resource name (App Service or Function name)"
+        required: true
+        type: string
+
+jobs:
+  validate_parameters:
+    name: Validate Workflow Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce Input Rules
+        run: |
+          if [[ "${{ github.event.inputs.target_service }}" == "function" && "${{ github.event.inputs.function_runtime }}" == "none" ]]; then
+            echo "::error title=Validation Failed::You must select a valid function_runtime (python/node/dotnet) when deploying a function."
+            exit 1
+          fi
+          
+          if [[ "${{ github.event.inputs.target_service }}" == "webapp" && "${{ github.event.inputs.function_runtime }}" != "none" ]]; then
+            echo "::warning title=Ignored Parameter::Deployment target is 'webapp'. The provided runtime will be ignored during workflow execution."
+          fi
+
+  invoke_deployment:
+    name: Execute Reusable Deployment
+    needs: validate_parameters
+    uses: ./.github/workflows/reusable-azure-deploy.yml
+    with:
+      target_service: ${{ github.event.inputs.target_service }}
+      function_runtime: ${{ github.event.inputs.function_runtime }}
+      environment: ${{ github.event.inputs.environment }}
+      app_name: ${{ github.event.inputs.app_name }}
+    secrets:
+      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE }}
