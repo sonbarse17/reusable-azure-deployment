@@ -1,0 +1,93 @@
+name: Reusable Azure Web App Deploy
+
+on:
+  workflow_call:
+    inputs:
+      runtime_version:
+        description: "Version of the Python runtime (e.g., 3.11)"
+        required: true
+        type: string
+      environment:
+        description: "Environment to execute the deployment against (dev/uat/prod)"
+        required: true
+        type: string
+      slot_name:
+        description: "Azure deployment slot name (dev, uat, or production)"
+        required: true
+        type: string
+      app_name:
+        description: "Target resource name in Azure"
+        required: true
+        type: string
+      working_directory:
+        description: "Path to the app source code"
+        required: false
+        type: string
+        default: "."
+    secrets:
+      PUBLISH_PROFILE:
+        description: "Publish Profile for the Web App"
+        required: true
+
+jobs:
+  build:
+    name: Build Web App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # -----------------------------------------------------------------
+      # Setup Python Runtime
+      # -----------------------------------------------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.runtime_version }}
+
+      # -----------------------------------------------------------------
+      # Prepare Python Artifact
+      # -----------------------------------------------------------------
+      - name: Prepare Python Artifact
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          # Install production requirements if file exists
+          if [ -f "requirements.txt" ]; then pip install -r requirements.txt; fi
+          zip -rq ../deployment-artifact.zip .
+
+      # -----------------------------------------------------------------
+      # Publish Build Artifact
+      # -----------------------------------------------------------------
+      - name: Upload Deployment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webapp-package-${{ github.run_id }}
+          path: deployment-artifact.zip
+          retention-days: 1
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy Web App (${{ inputs.slot_name }} slot)
+    runs-on: ubuntu-latest
+    needs: build
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Download Deployment Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: webapp-package-${{ github.run_id }}
+          path: ./deploy-drop
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ inputs.app_name }}
+          publish-profile: ${{ secrets.PUBLISH_PROFILE }}
+          package: ./deploy-drop/deployment-artifact.zip
+          slot-name: ${{ inputs.slot_name }}

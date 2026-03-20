@@ -4,8 +4,8 @@ location            = "Central US"
 environment         = "dev"
 project_name        = "azuredeploy"
 
-webapp_sku   = "F1"
-function_sku = "Y1"
+webapp_sku   = "S1"
+function_sku = "EP1"
 
 node_version   = "20"
 python_version = "3.11"

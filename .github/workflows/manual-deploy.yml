@@ -10,56 +10,135 @@ on:
         options:
           - webapp
           - function
-      function_runtime:
-        description: "Select runtime (leave as 'none' if deploying a Web App)"
-        required: true
-        type: choice
-        options:
-          - none
-          - python
-          - node
-          - dotnet
-      environment:
-        description: "Target environment"
+      slot_name:
+        description: "Select the deployment slot"
         required: true
         type: choice
         options:
           - dev
           - uat
-          - prod
-        default: "dev"
-      app_name:
-        description: "Azure resource name (App Service or Function name)"
+          - production
+      runtime:
+        description: "Select the application runtime"
+        required: true
+        type: choice
+        options:
+          - python
+          - node
+          - dotnet
+      runtime_version:
+        description: "Specify the runtime version (e.g., 20, 3.11, 8.0.x)"
         required: true
         type: string
+      app_name:
+        description: "Azure resource name (exact App Service or Function App name)"
+        required: true
+        type: string
+      working_directory:
+        description: "Directory containing the application code"
+        required: false
+        type: string
+        default: "."
 
 jobs:
   validate_parameters:
-    name: Validate Workflow Inputs
+    name: Validate Inputs and Derive Environment
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve_env.outputs.environment }}
+      working_dir: ${{ steps.resolve_dir.outputs.dir }}
     steps:
-      - name: Enforce Input Rules
+      - name: Resolve Environment from Slot
+        id: resolve_env
         run: |
-          if [[ "${{ github.event.inputs.target_service }}" == "function" && "${{ github.event.inputs.function_runtime }}" == "none" ]]; then
-            echo "::error title=Validation Failed::You must select a valid function_runtime (python/node/dotnet) when deploying a function."
-            exit 1
-          fi
-          
-          if [[ "${{ github.event.inputs.target_service }}" == "webapp" && "${{ github.event.inputs.function_runtime }}" != "none" ]]; then
-            echo "::warning title=Ignored Parameter::Deployment target is 'webapp'. The provided runtime will be ignored during workflow execution."
+          SLOT="${{ github.event.inputs.slot_name }}"
+          echo "Selected slot: $SLOT"
+
+          if [[ "$SLOT" == "production" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "Slot 'production' maps to environment: prod"
+          elif [[ "$SLOT" == "uat" ]]; then
+            echo "environment=uat" >> $GITHUB_OUTPUT
+            echo "Slot 'uat' maps to environment: uat"
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Slot 'dev' maps to environment: dev"
           fi
 
-  invoke_deployment:
-    name: Execute Reusable Deployment
+      - name: Derive Default Working Directory
+        id: resolve_dir
+        run: |
+          if [[ "${{ github.event.inputs.working_directory }}" != "." ]]; then
+            echo "dir=${{ github.event.inputs.working_directory }}" >> $GITHUB_OUTPUT
+          else
+            TARGET_SRV="${{ github.event.inputs.target_service }}"
+            RUNTIME="${{ github.event.inputs.runtime }}"
+            echo "dir=./src/${TARGET_SRV}-${RUNTIME}" >> $GITHUB_OUTPUT
+            echo "Auto-derived working directory for sample code: ./src/${TARGET_SRV}-${RUNTIME}"
+          fi
+
+      - name: Validate Web App Python Rule
+        run: |
+          if [[ "${{ github.event.inputs.target_service }}" == "webapp" && "${{ github.event.inputs.runtime }}" != "python" ]]; then
+            echo "::error title=Validation Failed::Currently only Python runtimes are supported for Web Apps in this setup."
+            exit 1
+          fi
+
+  deploy_webapp:
+    name: Web App Pipeline
     needs: validate_parameters
-    uses: ./.github/workflows/reusable-azure-deploy.yml
+    if: ${{ github.event.inputs.target_service == 'webapp' }}
+    uses: ./.github/workflows/reusable-webapp-deploy.yml
     with:
-      target_service: ${{ github.event.inputs.target_service }}
-      function_runtime: ${{ github.event.inputs.function_runtime }}
-      environment: ${{ github.event.inputs.environment }}
+      runtime_version: ${{ github.event.inputs.runtime_version }}
+      environment: ${{ needs.validate_parameters.outputs.environment }}
+      slot_name: ${{ github.event.inputs.slot_name }}
       app_name: ${{ github.event.inputs.app_name }}
+      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
     secrets:
-      PUBLISH_PROFILE_WEBAPP_NODE: ${{ secrets.AZURE_PUBLISH_PROFILE_WEBAPP_NODE }}
-      PUBLISH_PROFILE_FUNC_NODE: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_NODE }}
-      PUBLISH_PROFILE_FUNC_PYTHON: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_PYTHON }}
-      PUBLISH_PROFILE_FUNC_DOTNET: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_DOTNET }}
+      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE_WEBAPP_PYTHON }}
+
+  deploy_function_node:
+    name: Function App Pipeline (Node)
+    needs: validate_parameters
+    if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'node' }}
+    uses: ./.github/workflows/reusable-function-deploy.yml
+    with:
+      runtime: ${{ github.event.inputs.runtime }}
+      runtime_version: ${{ github.event.inputs.runtime_version }}
+      environment: ${{ needs.validate_parameters.outputs.environment }}
+      slot_name: ${{ github.event.inputs.slot_name }}
+      app_name: ${{ github.event.inputs.app_name }}
+      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+    secrets:
+      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_NODE }}
+
+  deploy_function_python:
+    name: Function App Pipeline (Python)
+    needs: validate_parameters
+    if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'python' }}
+    uses: ./.github/workflows/reusable-function-deploy.yml
+    with:
+      runtime: ${{ github.event.inputs.runtime }}
+      runtime_version: ${{ github.event.inputs.runtime_version }}
+      environment: ${{ needs.validate_parameters.outputs.environment }}
+      slot_name: ${{ github.event.inputs.slot_name }}
+      app_name: ${{ github.event.inputs.app_name }}
+      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+    secrets:
+      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_PYTHON }}
+
+  deploy_function_dotnet:
+    name: Function App Pipeline (.NET)
+    needs: validate_parameters
+    if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'dotnet' }}
+    uses: ./.github/workflows/reusable-function-deploy.yml
+    with:
+      runtime: ${{ github.event.inputs.runtime }}
+      runtime_version: ${{ github.event.inputs.runtime_version }}
+      environment: ${{ needs.validate_parameters.outputs.environment }}
+      slot_name: ${{ github.event.inputs.slot_name }}
+      app_name: ${{ github.event.inputs.app_name }}
+      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+    secrets:
+      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_DOTNET }}
