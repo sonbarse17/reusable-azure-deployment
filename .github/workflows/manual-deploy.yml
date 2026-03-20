@@ -59,4 +59,7 @@ jobs:
       environment: ${{ github.event.inputs.environment }}
       app_name: ${{ github.event.inputs.app_name }}
     secrets:
-      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE }}
+      PUBLISH_PROFILE_WEBAPP_NODE: ${{ secrets.AZURE_PUBLISH_PROFILE_WEBAPP_NODE }}
+      PUBLISH_PROFILE_FUNC_NODE: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_NODE }}
+      PUBLISH_PROFILE_FUNC_PYTHON: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_PYTHON }}
+      PUBLISH_PROFILE_FUNC_DOTNET: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_DOTNET }}
