@@ -1,68 +1,221 @@
 # Reusable Azure Deployment Framework
 
-This repository provides a robust, reusable GitHub Actions CI/CD framework to seamlessly build and deploy applications to **Azure App Services (Web Apps)** and **Azure Functions**.
-
-It features automated environment scaffolding (Node.js, Python, .NET) and handles the intricacies of zipping and publishing artifacts to Azure natively.
+A production-ready, reusable GitHub Actions CI/CD framework to build and deploy applications to **Azure App Services (Web Apps)** and **Azure Functions** — across Node.js, Python, and .NET runtimes.
 
 ---
 
-## 🏗️ Repository Structure
+## 📁 Repository Structure
 
-*   **.github/workflows/reusable-azure-deploy.yml**: The core reusable workflow. It handles the dynamic setup, build, zip, and deployment based on inputs.
-*   **.github/workflows/manual-deploy.yml**: The user-facing workflow providing a UI to trigger deployments manually.
-*   **src/**: Contains boilerplate sample applications ready for testing:
-    *   `webapp-node/`: Sample Node.js Express App for App Service.
-    *   `function-python/`: Sample Python Azure Function (v2 HTTP trigger).
-    *   `function-node/`: Sample Node.js Azure Function (v4 HTTP trigger).
-    *   `function-dotnet/`: Sample .NET 8 Isolated Worker Azure Function.
-
----
-
-## ⚙️ Prerequisites Configuration (Step-by-Step)
-
-Before you can run a deployment, you need to provide GitHub Actions with the credentials to push code into your Azure resources. This is done securely using an **Azure Publish Profile**.
-
-### Step 1: Get your Publish Profile from Azure
-1. Log in to the [Azure Portal](https://portal.azure.com).
-2. Navigate to your target **App Service** or **Function App**.
-3. On the **Overview** page for that resource, look at the top menu bar.
-4. Click **Get publish profile** (or "Download publish profile"). This will download a `.PublishSettings` XML file to your computer.
-5. Open that downloaded XML file in any text editor and copy its **entire content**.
-
-### Step 2: Add the Secret to GitHub
-1. Navigate to your GitHub repository.
-2. Go to **Settings** > **Secrets and variables** > **Actions**.
-3. Click the green **New repository secret** button.
-4. Set the **Name** exactly to: `AZURE_PUBLISH_PROFILE`
-5. Paste the XML content you copied in Step 1 into the **Secret** field.
-6. Click **Add secret**.
-
-*(Note: If deploying to multiple environments or different apps frequently, you may want to set up Environment Secrets instead of Repository Secrets).*
+```
+.
+├── .github/
+│   └── workflows/
+│       ├── reusable-azure-deploy.yml   # Core reusable workflow (build + deploy engine)
+│       └── manual-deploy.yml           # User-facing manual trigger workflow
+├── src/
+│   ├── webapp-node/                    # Sample Node.js Express Web App
+│   ├── function-node/                  # Sample Node.js Azure Function (v4 model)
+│   ├── function-python/                # Sample Python Azure Function (v2 model)
+│   └── function-dotnet/                # Sample .NET 8 Isolated Azure Function
+└── terraform/
+    ├── providers.tf                    # Azure provider configuration
+    ├── variables.tf                    # Input variable declarations
+    ├── main.tf                         # All Azure resource definitions
+    ├── outputs.tf                      # Output values (app names, URLs)
+    └── terraform.tfvars                # Your environment-specific values
+```
 
 ---
 
-## 🚀 How to Execute a Manual Deployment
+## 🚀 End-to-End Deployment Guide
+
+Follow these steps in order to go from zero to a fully deployed application on Azure.
+
+---
+
+### Step 1 — Prerequisites
+
+Make sure you have the following installed and configured locally:
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5.0
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)
+- An active **Azure Subscription**
+
+Login to Azure via the CLI:
+
+```bash
+az login
+```
+
+---
+
+### Step 2 — Configure Terraform Variables
+
+Open `terraform/terraform.tfvars` and fill in your values:
+
+```hcl
+subscription_id     = "your-azure-subscription-id"   # az account show --query id -o tsv
+resource_group_name = "reusable-deploy"
+location            = "Central US"
+environment         = "dev"
+project_name        = "azuredeploy"
+
+webapp_sku   = "F1"    # Free tier. Use B1/S1 for paid tiers.
+function_sku = "Y1"    # Y1 = Consumption (free). Use EP1 for Premium.
+
+node_version   = "20"
+python_version = "3.11"
+dotnet_version = "8.0"
+
+log_retention_days = 30
+
+tags = {
+  owner   = "your-name"
+  purpose = "azure-deployment-demo"
+}
+```
+
+> **Note:** The `F1` (Free) and `Y1` (Consumption) SKUs require separate resource groups.
+> Terraform handles this automatically — the Web App and Function Apps will be placed in
+> different resource groups.
+
+---
+
+### Step 3 — Provision Azure Infrastructure with Terraform
+
+```bash
+cd terraform/
+
+# Initialize providers
+terraform init
+
+# Preview what will be created (optional but recommended)
+terraform plan
+
+# Create all Azure resources
+terraform apply --auto-approve
+```
+
+Once complete, Terraform will output the exact names and URLs of all provisioned resources:
+
+```
+Outputs:
+
+application_insights_name = "appi-azuredeploy-dev-xxxxxx"
+function_dotnet_name      = "func-dotnet-azuredeploy-dev-xxxxxx"
+function_dotnet_url       = "https://func-dotnet-azuredeploy-dev-xxxxxx.azurewebsites.net"
+function_node_name        = "func-node-azuredeploy-dev-xxxxxx"
+function_node_url         = "https://func-node-azuredeploy-dev-xxxxxx.azurewebsites.net"
+function_python_name      = "func-python-azuredeploy-dev-xxxxxx"
+function_python_url       = "https://func-python-azuredeploy-dev-xxxxxx.azurewebsites.net"
+resource_group_func_name  = "rg-azuredeploy-dev-func"
+resource_group_name       = "rg-azuredeploy-dev"
+storage_account_name      = "stazuredeployxxxxxx"
+webapp_node_name          = "app-node-azuredeploy-dev-xxxxxx"
+webapp_node_url           = "https://app-node-azuredeploy-dev-xxxxxx.azurewebsites.net"
+```
+
+> **Save these output values** — you will need the app names in Steps 4 and 6.
+
+---
+
+### Step 4 — Get Azure Publish Profiles
+
+Each Azure app has its own Publish Profile (credentials for deployment). Fetch all 4 using the Azure CLI. Replace the names below with your actual Terraform output values:
+
+```bash
+# 1. Node.js Web App
+az webapp deployment list-publishing-profiles \
+  --name "<webapp_node_name>" \
+  --resource-group "<resource_group_name>" \
+  --xml
+
+# 2. Node.js Function App
+az functionapp deployment list-publishing-profiles \
+  --name "<function_node_name>" \
+  --resource-group "<resource_group_func_name>" \
+  --xml
+
+# 3. Python Function App
+az functionapp deployment list-publishing-profiles \
+  --name "<function_python_name>" \
+  --resource-group "<resource_group_func_name>" \
+  --xml
+
+# 4. .NET Function App
+az functionapp deployment list-publishing-profiles \
+  --name "<function_dotnet_name>" \
+  --resource-group "<resource_group_func_name>" \
+  --xml
+```
+
+Copy the full XML output from each command — you'll need it in the next step.
+
+---
+
+### Step 5 — Add GitHub Secrets
+
+Navigate to your GitHub repository:
+**Settings → Secrets and variables → Actions → New repository secret**
+
+Add the following **4 secrets**, pasting the full XML from Step 4 as the value for each:
+
+| Secret Name | Value |
+|---|---|
+| `AZURE_PUBLISH_PROFILE_WEBAPP_NODE` | XML output from the Node.js Web App command |
+| `AZURE_PUBLISH_PROFILE_FUNC_NODE` | XML output from the Node.js Function command |
+| `AZURE_PUBLISH_PROFILE_FUNC_PYTHON` | XML output from the Python Function command |
+| `AZURE_PUBLISH_PROFILE_FUNC_DOTNET` | XML output from the .NET Function command |
+
+> ⚠️ **Security:** These secrets contain live deployment credentials. Never commit them to source code. They are protected by GitHub's encrypted secrets store once added.
+
+---
+
+### Step 6 — Trigger a Deployment
 
 1. Go to the **Actions** tab in your GitHub repository.
-2. On the left sidebar, click on **Trigger Azure Deployment**.
-3. Click the **Run workflow** dropdown button on the right side of the screen.
-4. Fill out the required parameters:
-    *   **target_service**: Select either `webapp` or `function`.
-    *   **function_runtime**: If deploying a webapp, select `none`. If deploying a Function App, select the language your function uses (`python`, `node`, `dotnet`).
-    *   **environment**: Select your target environment tag (e.g., `dev`, `prod`).
-    *   **app_name**: Type the *exact* name of your App Service or Function App as it appears in Azure (e.g., `my-company-prod-func`).
-5. Click the green **Run workflow** button!
+2. Click **Trigger Azure Deployment** in the left sidebar.
+3. Click the **Run workflow** dropdown.
+4. Fill in the parameters:
+
+| Parameter | Description | Example Values |
+|---|---|---|
+| `target_service` | Type of Azure resource | `webapp` or `function` |
+| `function_runtime` | Runtime language (functions only) | `none`, `python`, `node`, `dotnet` |
+| `environment` | Target environment tag | `dev`, `uat`, `prod` |
+| `app_name` | **Exact Azure resource name** from Terraform output | `app-node-azuredeploy-dev-xxxxxx` |
+
+5. Click the green **Run workflow** button.
+
+#### Example Combinations
+
+| Deploying | `target_service` | `function_runtime` | `app_name` |
+|---|---|---|---|
+| Node.js Web App | `webapp` | `none` | `app-node-azuredeploy-dev-xxxxxx` |
+| Node.js Function | `function` | `node` | `func-node-azuredeploy-dev-xxxxxx` |
+| Python Function | `function` | `python` | `func-python-azuredeploy-dev-xxxxxx` |
+| .NET Function | `function` | `dotnet` | `func-dotnet-azuredeploy-dev-xxxxxx` |
+
+> ℹ️ The workflow will automatically use the correct publish profile secret based on the combination of `target_service` and `function_runtime` you select.
 
 ---
 
-## 🔗 How to Automate Deployments (Calling the Reusable Workflow)
+### Step 7 — Verify Deployment
 
-While the manual trigger is great for on-demand deployments, you will likely want to deploy automatically when code is merged. You can call the reusable workflow natively from *any* other workflow file (for example, triggering on push to `main`).
+Once the workflow completes successfully, open the URL from the Terraform output in your browser to verify your app is live:
 
-Create a file like `.github/workflows/deploy-on-push.yml`:
+```
+https://<app_name>.azurewebsites.net
+```
+
+---
+
+## 🔗 Calling the Reusable Workflow Automatically
+
+To trigger deployments automatically on code push (e.g., on merge to `main`), create a new file `.github/workflows/deploy-on-push.yml`:
 
 ```yaml
-name: Auto Deploy to Production
+name: Auto Deploy on Push
 
 on:
   push:
@@ -70,18 +223,58 @@ on:
       - main
 
 jobs:
-  call_azure_deployment:
+  deploy:
     uses: ./.github/workflows/reusable-azure-deploy.yml
     with:
       target_service: "function"
       function_runtime: "python"
       environment: "prod"
-      app_name: "my-azure-production-function"
+      app_name: "func-python-azuredeploy-prod-xxxxxx"
     secrets:
-      PUBLISH_PROFILE: ${{ secrets.AZURE_PUBLISH_PROFILE }}
+      PUBLISH_PROFILE_FUNC_PYTHON: ${{ secrets.AZURE_PUBLISH_PROFILE_FUNC_PYTHON }}
 ```
 
+---
+
+## 🏗️ How the Workflow Works
+
+```
+manual-deploy.yml  (you trigger this)
+       │
+       ├── validates inputs (fail-fast if function + runtime=none)
+       │
+       └── calls reusable-azure-deploy.yml with:
+                │
+                ├── BUILD JOB
+                │     ├── Checkout source code
+                │     ├── Setup runtime (Node/Python/.NET) based on inputs
+                │     ├── Install dependencies / publish release build
+                │     ├── Zip the artifact
+                │     └── Upload zip as GitHub Actions artifact
+                │
+                └── DEPLOY JOB (runs after build)
+                      ├── Download the zip artifact
+                      └── Push to Azure using the matching publish profile
+```
+
+---
+
+## 🧹 Tear Down Infrastructure
+
+To destroy all Azure resources created by Terraform:
+
+```bash
+cd terraform/
+terraform destroy --auto-approve
+```
+
+---
+
 ## 🛡️ Features
-*   **Fail-fast Validation**: Warns or stops immediately if parameters clash (e.g., deploying a Function but selecting `none` for runtime).
-*   **Security First**: Uses explicit `npm install --omit=dev` and Python `.python_packages` mechanisms to keep deployed bundle sizes small and secure.
-*   **Latest Tech**: Runs the absolute newest v4/v5 GitHub Actions and V4 Function Programming Models.
+
+- **Fail-fast Validation:** Stops immediately if parameters conflict (e.g., `function` selected but `runtime=none`)
+- **Reusable by Design:** The core workflow accepts generic inputs — works for any Azure app name
+- **Per-app Secrets:** Each app has its own publish profile secret — no credential swapping needed
+- **Tagging:** All resources are tagged with `environment`, `project`, and `managed_by` for cost tracking
+- **Observability:** Application Insights and Log Analytics Workspace provisioned for all apps
+- **Security:** Production dependencies only (`--omit=dev`), `.python_packages` isolation for Python
