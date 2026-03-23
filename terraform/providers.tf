@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.47"
+    }
   }
 }
 
@@ -17,4 +21,8 @@ provider "azurerm" {
   features {}
   subscription_id            = var.subscription_id
   skip_provider_registration = true
+}
+
+provider "azuread" {
+  tenant_id = var.tenant_id
 }
