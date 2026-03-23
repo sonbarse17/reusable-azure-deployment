@@ -50,9 +50,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      # -----------------------------------------------------------------
-      # Setup Runtimes (Dynamic Version)
-      # -----------------------------------------------------------------
       - name: Setup Python
         if: ${{ inputs.runtime == 'python' }}
         uses: actions/setup-python@v5
@@ -71,16 +68,12 @@ jobs:
         with:
           dotnet-version: ${{ inputs.runtime_version }}
 
-      # -----------------------------------------------------------------
-      # Prepare Artifacts
-      # -----------------------------------------------------------------
       - name: Prepare Python Artifact
         if: ${{ inputs.runtime == 'python' }}
         working-directory: ${{ inputs.working_directory }}
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          # Specific Azure Function python target folder convention
           if [ -f "requirements.txt" ]; then pip install --target=".python_packages/lib/site-packages" -r requirements.txt; fi
           zip -rq ../deployment-artifact.zip .
 
@@ -99,9 +92,6 @@ jobs:
           cd publish_output
           zip -rq ../../deployment-artifact.zip .
 
-      # -----------------------------------------------------------------
-      # Publish Build Artifact
-      # -----------------------------------------------------------------
       - name: Upload Deployment Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -114,10 +104,12 @@ jobs:
     name: Deploy Function App (${{ inputs.slot_name }} slot)
     runs-on: ubuntu-latest
     needs: build
-    environment: ${{ inputs.environment }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: "https://${{ inputs.app_name }}${{ inputs.slot_name != 'production' && format('-{0}', inputs.slot_name) || '' }}.azurewebsites.net"
     permissions:
-      id-token: write # Required for OIDC
-      contents: read  # Required for checkout/download actions
+      id-token: write
+      contents: read
 
     steps:
       - name: Download Deployment Artifact
