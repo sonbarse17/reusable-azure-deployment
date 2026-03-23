@@ -32,6 +32,16 @@ Because this system is highly secure, it does not use hardcoded publishing secre
 
 ---
 
+## 🌍 Configuring GitHub Environments
+To take full advantage of the dynamic deployment protection rules engineered into this pipeline, you should enable GitHub Environments natively:
+1. Go to your repository on GitHub and click **Settings**.
+2. Click **Environments** on the left menu.
+3. Click **"New environment"** and name them exactly: `prod`, `uat`, and `dev` (case sensitive).
+4. Optionally check **"Required reviewers"** inside of `prod` to mandate manual human approval before any code hits the `production` Azure slot.
+5. The pipeline natively intercepts your slot choices and automatically attaches your deployment to the correct GitHub Environment — even generating a clickable live link to your deployed Azure endpoint right in the UI!
+
+---
+
 ## 🚀 How to Run Deployments
 1. Go to your repository's **Actions** tab on GitHub.
 2. Select **"Trigger Azure Deployment"** in the left sidebar.
