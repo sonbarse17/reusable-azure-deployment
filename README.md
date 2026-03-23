@@ -20,29 +20,44 @@ This repository contains a full production-grade, enterprise-scale CI/CD deploym
 
 ---
 
-## 🔐 Setup Authentication (OIDC)
-Because this system is highly secure, it does not use hardcoded publishing secrets. You must set up OIDC Trust:
-1. Register a new application in Microsoft Entra ID (Azure Active Directory).
-2. Go to `Certificates & secrets` > `Federated credentials` > Add a credential for "GitHub Actions" pointing strictly to this repository.
-3. Grant your new Service Principal `Contributor` (or scoped WebApp Contributor) rights to your Resource Group.
-4. Add the following repository secrets to GitHub:
-   - `AZURE_CLIENT_ID`: (Your Application/Client ID)
-   - `AZURE_TENANT_ID`: (Your Directory/Tenant ID)
-   - `AZURE_SUBSCRIPTION_ID`: (Your Subscription ID)
+## 🏢 Step 1: Provision Infrastructure & OIDC Identities
+Because this system is built to strict production standards, you do not need to click around the Azure AD portal. The included Terraform automatically mints the OpenID Connect (OIDC) Service Principal, scopes role assignments, and builds federated credentials.
+
+1. Navigate to the `terraform` directory:
+   ```bash
+   cd terraform
+   ```
+2. Initialize and deploy:
+   ```bash
+   terraform init
+   terraform apply -var="subscription_id=<YOUR_SUB_ID>" -var="tenant_id=<YOUR_TENANT_ID>"
+   ```
+3. When the Terraform apply completes, it will securely output three values:
+   - `AZURE_CLIENT_ID`
+   - `AZURE_TENANT_ID`
+   - `AZURE_SUBSCRIPTION_ID`
 
 ---
 
-## 🌍 Configuring GitHub Environments
-To take full advantage of the dynamic deployment protection rules engineered into this pipeline, you should enable GitHub Environments natively:
+## 🔐 Step 2: Configure GitHub Repository Secrets
+To link your new automated Identity exactly to this repository:
 1. Go to your repository on GitHub and click **Settings**.
+2. Go to **Secrets and variables** > **Actions** on the left menu.
+3. Add the three specific Outputs from Step 1 as Repository Secrets.
+
+---
+
+## 🌍 Step 3: Configure GitHub Environments
+To take full advantage of the dynamic deployment protection rules engineered into this pipeline, enable GitHub Environments natively:
+1. Stay in your GitHub **Settings**.
 2. Click **Environments** on the left menu.
 3. Click **"New environment"** and name them exactly: `prod`, `uat`, and `dev` (case sensitive).
-4. Optionally check **"Required reviewers"** inside of `prod` to mandate manual human approval before any code hits the `production` Azure slot.
-5. The pipeline natively intercepts your slot choices and automatically attaches your deployment to the correct GitHub Environment — even generating a clickable live link to your deployed Azure endpoint right in the UI!
+4. Optionally check **"Required reviewers"** inside of `prod` to mandate manual human approval before any code executes against the `production` Azure slot.
+5. *Magic:* The pipelines natively intercept your manual framework choices and automatically attach your deployments to the correct GitHub Environments—even generating a clickable live link to your active endpoint right in the Azure UI!
 
 ---
 
-## 🚀 How to Run Deployments
+## 🚀 Step 4: Run Azure Deployments
 1. Go to your repository's **Actions** tab on GitHub.
 2. Select **"Trigger Azure Deployment"** in the left sidebar.
 3. Click the **"Run workflow"** button on the right.
