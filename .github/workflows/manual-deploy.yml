@@ -40,13 +40,11 @@ on:
         type: string
         default: "."
 
-# Security: Global execution strictly restricted
 permissions: {}
 
 jobs:
   deploy_webapp:
     name: Web App Pipeline
-    # Only allow if strictly webapp AND python (Node/.NET Web Apps are not supported in this repo structure)
     if: ${{ github.event.inputs.target_service == 'webapp' && github.event.inputs.runtime == 'python' }}
     permissions:
       id-token: write
