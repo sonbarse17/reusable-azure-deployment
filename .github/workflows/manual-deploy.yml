@@ -40,65 +40,24 @@ on:
         type: string
         default: "."
 
-permissions:
-  id-token: write
-  contents: read
+# Security: Global execution strictly restricted
+permissions: {}
 
 jobs:
-  validate_parameters:
-    name: Validate Inputs and Derive Environment
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.resolve_env.outputs.environment }}
-      working_dir: ${{ steps.resolve_dir.outputs.dir }}
-    steps:
-      - name: Resolve Environment from Slot
-        id: resolve_env
-        run: |
-          SLOT="${{ github.event.inputs.slot_name }}"
-          echo "Selected slot: $SLOT"
-
-          if [[ "$SLOT" == "production" ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
-            echo "Slot 'production' maps to environment: prod"
-          elif [[ "$SLOT" == "uat" ]]; then
-            echo "environment=uat" >> $GITHUB_OUTPUT
-            echo "Slot 'uat' maps to environment: uat"
-          else
-            echo "environment=dev" >> $GITHUB_OUTPUT
-            echo "Slot 'dev' maps to environment: dev"
-          fi
-
-      - name: Derive Default Working Directory
-        id: resolve_dir
-        run: |
-          if [[ "${{ github.event.inputs.working_directory }}" != "." ]]; then
-            echo "dir=${{ github.event.inputs.working_directory }}" >> $GITHUB_OUTPUT
-          else
-            TARGET_SRV="${{ github.event.inputs.target_service }}"
-            RUNTIME="${{ github.event.inputs.runtime }}"
-            echo "dir=./src/${TARGET_SRV}-${RUNTIME}" >> $GITHUB_OUTPUT
-            echo "Auto-derived working directory for sample code: ./src/${TARGET_SRV}-${RUNTIME}"
-          fi
-
-      - name: Validate Web App Python Rule
-        run: |
-          if [[ "${{ github.event.inputs.target_service }}" == "webapp" && "${{ github.event.inputs.runtime }}" != "python" ]]; then
-            echo "::error title=Validation Failed::Currently only Python runtimes are supported for Web Apps in this setup."
-            exit 1
-          fi
-
   deploy_webapp:
     name: Web App Pipeline
-    needs: validate_parameters
-    if: ${{ github.event.inputs.target_service == 'webapp' }}
+    # Only allow if strictly webapp AND python (Node/.NET Web Apps are not supported in this repo structure)
+    if: ${{ github.event.inputs.target_service == 'webapp' && github.event.inputs.runtime == 'python' }}
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/reusable-webapp-deploy.yml
     with:
       runtime_version: ${{ github.event.inputs.runtime_version }}
-      environment: ${{ needs.validate_parameters.outputs.environment }}
+      environment: ${{ github.event.inputs.slot_name == 'production' && 'prod' || github.event.inputs.slot_name }}
       slot_name: ${{ github.event.inputs.slot_name }}
       app_name: ${{ github.event.inputs.app_name }}
-      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+      working_directory: ${{ github.event.inputs.working_directory != '.' && github.event.inputs.working_directory || format('./src/{0}-{1}', github.event.inputs.target_service, github.event.inputs.runtime) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -106,16 +65,18 @@ jobs:
 
   deploy_function_node:
     name: Function App Pipeline (Node)
-    needs: validate_parameters
     if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'node' }}
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/reusable-function-deploy.yml
     with:
       runtime: ${{ github.event.inputs.runtime }}
       runtime_version: ${{ github.event.inputs.runtime_version }}
-      environment: ${{ needs.validate_parameters.outputs.environment }}
+      environment: ${{ github.event.inputs.slot_name == 'production' && 'prod' || github.event.inputs.slot_name }}
       slot_name: ${{ github.event.inputs.slot_name }}
       app_name: ${{ github.event.inputs.app_name }}
-      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+      working_directory: ${{ github.event.inputs.working_directory != '.' && github.event.inputs.working_directory || format('./src/{0}-{1}', github.event.inputs.target_service, github.event.inputs.runtime) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -123,16 +84,18 @@ jobs:
 
   deploy_function_python:
     name: Function App Pipeline (Python)
-    needs: validate_parameters
     if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'python' }}
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/reusable-function-deploy.yml
     with:
       runtime: ${{ github.event.inputs.runtime }}
       runtime_version: ${{ github.event.inputs.runtime_version }}
-      environment: ${{ needs.validate_parameters.outputs.environment }}
+      environment: ${{ github.event.inputs.slot_name == 'production' && 'prod' || github.event.inputs.slot_name }}
       slot_name: ${{ github.event.inputs.slot_name }}
       app_name: ${{ github.event.inputs.app_name }}
-      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+      working_directory: ${{ github.event.inputs.working_directory != '.' && github.event.inputs.working_directory || format('./src/{0}-{1}', github.event.inputs.target_service, github.event.inputs.runtime) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -140,16 +103,18 @@ jobs:
 
   deploy_function_dotnet:
     name: Function App Pipeline (.NET)
-    needs: validate_parameters
     if: ${{ github.event.inputs.target_service == 'function' && github.event.inputs.runtime == 'dotnet' }}
+    permissions:
+      id-token: write
+      contents: read
     uses: ./.github/workflows/reusable-function-deploy.yml
     with:
       runtime: ${{ github.event.inputs.runtime }}
       runtime_version: ${{ github.event.inputs.runtime_version }}
-      environment: ${{ needs.validate_parameters.outputs.environment }}
+      environment: ${{ github.event.inputs.slot_name == 'production' && 'prod' || github.event.inputs.slot_name }}
       slot_name: ${{ github.event.inputs.slot_name }}
       app_name: ${{ github.event.inputs.app_name }}
-      working_directory: ${{ needs.validate_parameters.outputs.working_dir }}
+      working_directory: ${{ github.event.inputs.working_directory != '.' && github.event.inputs.working_directory || format('./src/{0}-{1}', github.event.inputs.target_service, github.event.inputs.runtime) }}
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
